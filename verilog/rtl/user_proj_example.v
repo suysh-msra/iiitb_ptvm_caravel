@@ -70,96 +70,116 @@ module user_proj_example #(
 );
     wire clk;
     wire rst;
+   wire [1:0] in;
+   wire out;
+   
 
     wire [`MPRJ_IO_PADS-1:0] io_in;
     wire [`MPRJ_IO_PADS-1:0] io_out;
     wire [`MPRJ_IO_PADS-1:0] io_oeb;
-
-    wire [31:0] rdata; 
-    wire [31:0] wdata;
-    wire [BITS-1:0] count;
-
-    wire valid;
-    wire [3:0] wstrb;
-    wire [31:0] la_write;
-
-    // WB MI A
-    assign valid = wbs_cyc_i && wbs_stb_i; 
-    assign wstrb = wbs_sel_i & {4{wbs_we_i}};
-    assign wbs_dat_o = rdata;
-    assign wdata = wbs_dat_i;
+	
+    
 
     // IO
-    assign io_out = count;
-    assign io_oeb = {(`MPRJ_IO_PADS-1){rst}};
+    assign io_out[35] = out;
+    assign io_oeb = 0;
+    assign clk = wb_clk_i;
+    assign rst = wb_rst_i;
+    assign in = io_in[35:34]; 
+    
 
     // IRQ
     assign irq = 3'b000;	// Unused
 
-    // LA
-    assign la_data_out = {{(127-BITS){1'b0}}, count};
-    // Assuming LA probes [63:32] are for controlling the count register  
-    assign la_write = ~la_oenb[63:32] & ~{BITS{valid}};
-    // Assuming LA probes [65:64] are for controlling the count clk & reset  
-    assign clk = (~la_oenb[64]) ? la_data_in[64]: wb_clk_i;
-    assign rst = (~la_oenb[65]) ? la_data_in[65]: wb_rst_i;
-
-    counter #(
-        .BITS(BITS)
-    ) counter(
-        .clk(clk),
-        .reset(rst),
-        .ready(wbs_ack_o),
-        .valid(valid),
-        .rdata(rdata),
-        .wdata(wbs_dat_i),
-        .wstrb(wstrb),
-        .la_write(la_write),
-        .la_input(la_data_in[63:32]),
-        .count(count)
-    );
-
+   
+    iiitb_ptvm instance (clk,rst,in,out);
+    
+    
 endmodule
 
-module counter #(
-    parameter BITS = 32
-)(
-    input clk,
-    input reset,
-    input valid,
-    input [3:0] wstrb,
-    input [BITS-1:0] wdata,
-    input [BITS-1:0] la_write,
-    input [BITS-1:0] la_input,
-    output ready,
-    output [BITS-1:0] rdata,
-    output [BITS-1:0] count
+module iiitb_ptvm(
+	input clk,
+	input rst,
+	input [1:0]in,
+	output reg out
 );
-    reg ready;
-    reg [BITS-1:0] count;
-    reg [BITS-1:0] rdata;
 
-    always @(posedge clk) begin
-        if (reset) begin
-            count <= 0;
-            ready <= 0;
-        end else begin
-            ready <= 1'b0;
-            if (~|la_write) begin
-                count <= count + 1;
-            end
-            if (valid && !ready) begin
-                ready <= 1'b1;
-                rdata <= count;
-                if (wstrb[0]) count[7:0]   <= wdata[7:0];
-                if (wstrb[1]) count[15:8]  <= wdata[15:8];
-                if (wstrb[2]) count[23:16] <= wdata[23:16];
-                if (wstrb[3]) count[31:24] <= wdata[31:24];
-            end else if (|la_write) begin
-                count <= la_write & la_input;
-            end
-        end
-    end
+parameter s0 = 2'b00;
+parameter s1 = 2'b01;
+parameter s2 = 2'b10;
 
+reg [1:0]c_state; reg [1:0]n_state;
+
+always @(posedge clk)
+	begin
+	if(rst)
+		begin
+		c_state = 0;
+		n_state = 0;
+		end
+	else
+		begin
+		c_state = n_state;
+		case(c_state)
+		s0: if(in == 0)
+			begin
+			n_state = s0;
+			out = 0;
+			end
+		
+		else if(in== 2'b01)
+			begin
+			n_state = s1;
+			out = 0;
+			end
+			
+		else if(in == 2'b10)
+			begin
+			n_state = s2;
+			out = 0;
+			end
+			
+		s1: if(in == 0)
+			begin
+			n_state = s0;
+			out = 0;
+			end
+		
+		else if(in== 2'b01)
+			begin
+			n_state = s2;
+			out = 0;
+			end
+			
+		else if(in == 2'b10)
+			begin
+			n_state = s0;
+			out = 1;
+			end
+			
+		s2: if(in == 0)
+			begin
+			n_state = s0;
+			out = 0;
+			end
+		
+		else if(in== 2'b01)
+			begin
+			n_state = s0;
+			out = 1;
+			end
+			
+		else if(in == 2'b10)
+			begin
+			n_state = s0;
+			out = 1;
+			end 
+			
+		endcase
+		
+		end
+	end
+	
 endmodule
+
 `default_nettype wire
